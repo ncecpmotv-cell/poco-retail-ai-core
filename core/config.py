@@ -59,6 +59,12 @@ class Config:
     admin_id: int = 0
     user_id: int = 0
 
+    # Security & alerts
+    bridge_secret: str = ""          # HMAC key shared with the dashboard
+    alert_enabled: bool = True       # send chat alerts to ALERT_CHAT_ID
+    alert_chat_id: int = 0           # defaults to USER_ID when 0
+    alert_cooldown_seconds: int = 1800
+
     # Retail analytics
     store_capacity: int = 50
     staffing_threshold: int = 15
@@ -95,6 +101,10 @@ class Config:
             state_channel_id=_env("STATE_CHANNEL_ID"),
             admin_id=_env_int("ADMIN_ID", 0),
             user_id=_env_int("USER_ID", 0),
+            bridge_secret=_env("BRIDGE_SECRET"),
+            alert_enabled=_env("ALERT_ENABLED", "true").lower() in ("1", "true", "yes"),
+            alert_chat_id=_env_int("ALERT_CHAT_ID", 0),
+            alert_cooldown_seconds=_env_int("ALERT_COOLDOWN_SECONDS", 1800),
             store_capacity=_env_int("STORE_CAPACITY", 50),
             staffing_threshold=_env_int("STAFFING_THRESHOLD", 15),
             congested_at=_env_float("CONGESTED_AT", 0.6),

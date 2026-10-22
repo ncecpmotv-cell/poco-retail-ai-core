@@ -70,12 +70,21 @@ class RetailAIDaemon:
                 state_channel_id=cfg.state_channel_id,
                 admin_id=cfg.admin_id,
                 default_expiry=cfg.default_subscription_expiry,
+                bridge_secret=cfg.bridge_secret,
             )
         else:
             log.warning("BOT_TOKEN is empty — cloud sync disabled (local-only mode)")
         self.cameras: list[dict[str, Any]] = list(cfg.local_cameras)
         self.ai_prompt: str = cfg.local_ai_prompt
         self._last_state_posted: int = 0
+        # Device metrics + alert state
+        self._started_mono: float = time.monotonic()
+        self.last_inference_ms: Optional[int] = None
+        self.inference_ok: int = 0
+        self.inference_fail: int = 0
+        self._last_alert_sent: int = 0
+        self._last_alert_text: str = ""
+        self._last_gap_count: int = 0
 
     # ------------------------------------------------------------------ steps
     def sync_config(self) -> None:
@@ -102,6 +111,7 @@ class RetailAIDaemon:
                 continue
             role = str(cam.get("role", "general"))
             prompt = build_prompt(role, self.ai_prompt)
+            t0 = time.monotonic()
             result = run_inference(
                 self.cfg.minicpmv_cli_path,
                 self.cfg.model_dir,
@@ -111,9 +121,12 @@ class RetailAIDaemon:
                 timeout_seconds=self.cfg.inference_timeout_seconds,
                 mmproj_file=self.cfg.mmproj_file,
             )
+            self.last_inference_ms = int((time.monotonic() - t0) * 1000)
             if result is None:
+                self.inference_fail += 1
                 log.warning("camera %s: inference failed", cam_id)
                 continue
+            self.inference_ok += 1
             self.db.save_telemetry(
                 camera_id=cam_id,
                 raw_text=result["raw_text"],
@@ -156,13 +169,95 @@ class RetailAIDaemon:
             "congestion_index": report["congestion_index"],
             "timestamp": now,
         }
-        envelope = self.cloud.build_state_envelope(current_status, report)
+        device = {
+            "uptime_seconds": int(time.monotonic() - self._started_mono),
+            "last_inference_ms": self.last_inference_ms,
+            "inference_ok": self.inference_ok,
+            "inference_fail": self.inference_fail,
+        }
+        envelope = self.cloud.build_state_envelope(current_status, report, device)
         try:
             self.cloud.post_state(envelope)
             self._last_state_posted = now
             log.info("state posted: %s (count=%d)", status, report["current_count"])
         except CloudSyncError as exc:
             log.warning("state post failed (offline?): %s", exc)
+        self.maybe_alert(status, report, now)
+
+    # ---------------------------------------------------------------- alerts
+    def maybe_alert(self, status: str, report: dict[str, Any], now: int) -> None:
+        """Send a chat alert on Critical status or new staffing gaps
+        (rate-limited by ALERT_COOLDOWN_SECONDS)."""
+        if not self.cfg.alert_enabled or self.cloud is None:
+            return
+        chat_id = self.cfg.alert_chat_id or self.cfg.user_id
+        if not chat_id:
+            return
+        new_gaps = report["staffing_gaps"] > self._last_gap_count
+        text = None
+        if status == "Critical":
+            text = (
+                f"🚨 Retail AI — CRITICAL congestion: {report['current_count']} "
+                f"people in store (index {report['congestion_index']})."
+            )
+        elif new_gaps and report["staffing_gaps"] > 0:
+            text = (
+                f"⚠️ Retail AI — staffing gap detected: {report['staffing_gaps']} "
+                f"crowded events without staff in the last 24h."
+            )
+        if text is None:
+            self._last_gap_count = max(self._last_gap_count, report["staffing_gaps"])
+            return
+        if text == self._last_alert_text and now - self._last_alert_sent \
+                < self.cfg.alert_cooldown_seconds:
+            return
+        try:
+            self.cloud.send_message(chat_id, text)
+            self._last_alert_sent = now
+            self._last_alert_text = text
+            log.info("alert sent: %s", text)
+        except CloudSyncError as exc:
+            log.warning("alert send failed: %s", exc)
+        self._last_gap_count = report["staffing_gaps"]
+
+    # -------------------------------------------------------------- commands
+    def handle_commands(self) -> None:
+        """Answer /status, /cameras, /ping from the owner/admin chat."""
+        if self.cloud is None:
+            return
+        for cmd in self.cloud.pending_commands:
+            sender = int(cmd.get("from_id") or 0)
+            if self.cfg.admin_id and sender not in (self.cfg.admin_id, self.cfg.user_id):
+                continue
+            chat_id = cmd.get("chat_id")
+            text = cmd["text"].lower()
+            reply = None
+            if text.startswith("/ping"):
+                reply = "pong 🟢"
+            elif text.startswith("/status"):
+                report = self.kpi.calculate_hourly_metrics()
+                reply = (
+                    "📊 Retail AI status\n"
+                    f"• people now: {report['current_count']}\n"
+                    f"• congestion: {report['congestion_level']} "
+                    f"({report['congestion_index']})\n"
+                    f"• footfall today: {report['footfall_today']}\n"
+                    f"• staffing gaps (24h): {report['staffing_gaps']}\n"
+                    f"• uptime: {int(time.monotonic() - self._started_mono) // 60} min\n"
+                    f"• last inference: {self.last_inference_ms or '—'} ms"
+                )
+            elif text.startswith("/cameras"):
+                cams = "\n".join(
+                    f"  {c.get('id')} ({c.get('role', 'general')}) — {c.get('url')}"
+                    for c in self.cameras
+                ) or "  none configured"
+                reply = "📹 Cameras:\n" + cams
+            if reply:
+                try:
+                    self.cloud.send_message(chat_id, reply)
+                except CloudSyncError as exc:
+                    log.warning("command reply failed: %s", exc)
+        self.cloud.pending_commands.clear()
 
     # ------------------------------------------------------------------ loop
     def run_forever(self) -> None:
@@ -175,6 +270,7 @@ class RetailAIDaemon:
         while not _SHUTDOWN:
             started = time.monotonic()
             self.sync_config()
+            self.handle_commands()
             if self.cloud is None or self.cloud.is_subscription_active():
                 try:
                     self.process_cameras()

@@ -22,6 +22,11 @@ private Telegram channel used as a message bus, where the bot is an admin:
 
 All envelopes are JSON objects. The KB's CloudStorage key names are kept as
 envelope field names so the dashboard's CloudStorage mirror stays compatible.
+
+SECURITY: envelopes can be HMAC-SHA256-signed with a shared BRIDGE_SECRET
+(see core/envelope.py). With a secret configured, unsigned dashboard
+envelopes are rejected — this prevents forgery of set_subscription /
+set_config by anything able to post in the channel.
 """
 
 from __future__ import annotations
@@ -32,6 +37,8 @@ import time
 from typing import Any, Optional
 
 import requests
+
+from core.envelope import compute_signature, verify_envelope
 
 log = logging.getLogger("retail_ai.cloud")
 
@@ -52,6 +59,7 @@ class CloudSync:
         state_channel_id: str,
         admin_id: int = 0,
         default_expiry: int = 4102444800,
+        bridge_secret: str = "",
         session: Optional[requests.Session] = None,
     ) -> None:
         if not bot_token:
@@ -60,10 +68,13 @@ class CloudSync:
         self.channel_id = state_channel_id
         self.admin_id = admin_id
         self.default_expiry = default_expiry
+        self.bridge_secret = bridge_secret
         self._session = session or requests.Session()
         self._offset: int = 0
         self.subscription_expiry: int = default_expiry
         self.last_state_payload: Optional[dict[str, Any]] = None
+        # Incoming chat commands collected by poll_incoming:
+        self.pending_commands: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------ low level
     def api_call(
@@ -91,17 +102,35 @@ class CloudSync:
         raise CloudSyncError(f"Telegram API unreachable: {last_exc}")
 
     # --------------------------------------------------------- core -> cloud
+    def send_message(self, chat_id: Any, text: str) -> Optional[int]:
+        """Send a plain message to a chat (used for alerts + bot commands)."""
+        if not chat_id:
+            return None
+        msg = self.api_call(
+            "sendMessage",
+            {"chat_id": chat_id, "text": text, "disable_notification": False},
+        )
+        return msg.get("message_id") if msg else None
+
     def build_state_envelope(
-        self, current_status: dict[str, Any], analytics_report: dict[str, Any]
+        self,
+        current_status: dict[str, Any],
+        analytics_report: dict[str, Any],
+        device: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """The pinned 'state' envelope the dashboard reads via getChat."""
-        return {
+        envelope: dict[str, Any] = {
             "type": "state",
             "updated_at": int(time.time()),
             "subscription_expiry": int(self.subscription_expiry),
             "current_status": current_status,
             "last_analytics_report": analytics_report,
         }
+        if device:
+            envelope["device"] = device
+        if self.bridge_secret:
+            envelope["sig"] = compute_signature(envelope, self.bridge_secret)
+        return envelope
 
     def post_state(self, envelope: dict[str, Any]) -> Optional[int]:
         """Send the state envelope to the channel and pin it.
@@ -136,10 +165,12 @@ class CloudSync:
 
     # --------------------------------------------------------- cloud -> core
     def poll_incoming(self) -> list[dict[str, Any]]:
-        """Long-poll getUpdates and return applied envelopes.
+        """Long-poll getUpdates; return applied envelopes, collect commands.
 
-        Handles channel_post (dashboard posted via Bot API) and web_app_data
-        (Mini App sendData fallback). Malformed envelopes are ignored.
+        Handles channel_post (dashboard via Bot API), web_app_data (Mini App
+        sendData fallback) and plain text messages (bot chat commands, stored
+        in self.pending_commands). Signed envelopes are verified with the
+        BRIDGE_SECRET when one is configured.
         """
         if not self.bot_token:
             return []
@@ -159,10 +190,25 @@ class CloudSync:
                 raw = (update["channel_post"] or {}).get("text")
             elif "message" in update and "web_app_data" in update["message"]:
                 raw = (update["message"]["web_app_data"] or {}).get("data")
+            elif "message" in update:
+                msg = update["message"]
+                text = (msg or {}).get("text")
+                if text and str(text).startswith("/"):
+                    self.pending_commands.append(
+                        {
+                            "chat_id": msg.get("chat", {}).get("id"),
+                            "from_id": msg.get("from", {}).get("id"),
+                            "text": str(text).strip(),
+                        }
+                    )
+                continue
             if not raw:
                 continue
             envelope = self._parse_envelope(raw)
             if envelope is None:
+                continue
+            if not verify_envelope(envelope, self.bridge_secret):
+                log.warning("rejected envelope with invalid signature")
                 continue
             if self.apply_envelope(envelope):
                 applied.append(envelope)
