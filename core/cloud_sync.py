@@ -8,15 +8,17 @@ private Telegram channel used as a message bus, where the bot is an admin:
 
   Core -> Dashboard : sendMessage(state envelope) + pinChatMessage;
                       dashboard reads it via getChat -> pinned_message.text
-  Dashboard -> Core : dashboard posts set_config / set_subscription envelopes
-                      to the channel with a RELAY bot token; core receives
-                      them as channel_post updates via getUpdates
-                      (sendData/web_app_data is also supported as a fallback).
+  Dashboard -> Core : PRIMARY: the Mini App calls WebApp.sendData(); the bot
+                      receives a web_app_data update and the daemon picks it
+                      up via getUpdates. FALLBACK (link-launched apps): the
+                      dashboard posts envelopes to the channel with a RELAY
+                      bot token and the daemon receives them as channel_post
+                      updates via getUpdates.
 
-  Relay bot requirement (verified live): Telegram never delivers a bot's own
-  channel posts back to that bot via getUpdates, so envelopes must be posted
-  by a second bot (or sent via sendData) to reach the polling daemon. The
-  main token therefore stays on the device only.
+  Relay note (verified live): Telegram never delivers a bot's own channel
+  posts back to that bot via getUpdates, so the channel-post path only works
+  when the sender is a different bot (the relay). The main token therefore
+  stays on the device only.
 
 All envelopes are JSON objects. The KB's CloudStorage key names are kept as
 envelope field names so the dashboard's CloudStorage mirror stays compatible.

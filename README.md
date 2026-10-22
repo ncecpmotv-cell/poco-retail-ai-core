@@ -150,12 +150,14 @@ id. For a channel id, create the channel, forward any of its posts to
 2. Add your (main) bot as **administrator** with **Post messages** and
    **Pin messages** rights — the daemon uses it to post/pin state and to poll
    `getUpdates`.
-3. Create a second **relay bot** in [@BotFather](https://t.me/BotFather)
-   (`/newbot`) and add it to the channel too, with the same rights. The
-   dashboard uses the relay token for its reads and writes. **Why:** Telegram
-   never delivers a bot's own channel posts back to itself, so settings posted
-   with the main token would be invisible to the daemon; the relay also keeps
-   the main token off the dashboard frontend.
+3. Settings from the dashboard reach the daemon through the bot's
+   `getUpdates` stream via **`sendData`** (`web_app_data` updates — primary,
+   one bot, no extra setup). If you also want channel-post writes for
+   link-launched apps, create an optional second **relay bot** in
+   [@BotFather](https://t.me/BotFather) and add it to the channel with the
+   same rights; the dashboard then uses the relay token. (Telegram never
+   echoes a bot's own channel posts back to itself, which is why that path
+   needs the second bot.)
 4. Put the channel's `@username` (or numeric id) into `STATE_CHANNEL_ID`.
 5. That's the entire backend — Telegram's servers are the free state bus.
 
