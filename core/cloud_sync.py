@@ -112,6 +112,26 @@ class CloudSync:
         )
         return msg.get("message_id") if msg else None
 
+    def send_document(self, chat_id: Any, file_path: str, caption: str = "") -> Optional[int]:
+        """Upload a local file (e.g. CSV export) to a chat."""
+        import os
+
+        if not chat_id or not os.path.isfile(file_path):
+            return None
+        url = API_BASE.format(token=self.bot_token, method="sendDocument")
+        with open(file_path, "rb") as fh:
+            resp = self._session.post(
+                url,
+                data={"chat_id": chat_id, "caption": caption},
+                files={"document": (os.path.basename(file_path), fh, "text/csv")},
+                timeout=60,
+            )
+        resp.raise_for_status()
+        body = resp.json()
+        if not body.get("ok"):
+            raise CloudSyncError(body.get("description", "sendDocument failed"))
+        return body.get("result", {}).get("message_id")
+
     def build_state_envelope(
         self,
         current_status: dict[str, Any],

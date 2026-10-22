@@ -83,6 +83,10 @@ class Config:
     )
     default_subscription_expiry: int = 4102444800  # 2100-01-01
 
+    # Opening hours (off-hours security alerts; 0/0 = disabled)
+    open_hours_start: int = 0   # e.g. 8  (8:00)
+    open_hours_end: int = 0     # e.g. 23 (23:00); start==end disables the check
+
     # Paths
     db_path: str = "data/retail_ai.db"
     snapshot_dir: str = "snapshots"
@@ -122,6 +126,8 @@ class Config:
             default_subscription_expiry=_env_int(
                 "DEFAULT_SUBSCRIPTION_EXPIRY", 4102444800
             ),
+            open_hours_start=_env_int("OPEN_HOURS_START", 0),
+            open_hours_end=_env_int("OPEN_HOURS_END", 0),
             db_path=_env("DB_PATH", "data/retail_ai.db"),
             snapshot_dir=_env("SNAPSHOT_DIR", "snapshots"),
             model_dir=_env("MODEL_DIR", "models"),

@@ -14,6 +14,7 @@ to unit-test with an in-memory database.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 CONGESTION_BANDS = ("Normal", "Congested", "Critical")
@@ -84,6 +85,59 @@ class KpiEngine:
             "index": congestion_index(count, self.capacity),
         }
 
+    # ------------------------------------------------------------ zone ops
+    def zone_breakdown(self, since: Optional[int] = None) -> dict[str, Any]:
+        """Per-camera (zone) operational metrics over the window.
+
+        Cafe owners read this as: which zone (counter / entrance / seating)
+        is busiest right now and today.
+        """
+        import time
+
+        since = int(since) if since is not None else int(time.time()) - 86400
+        zones: dict[str, dict[str, Any]] = {}
+        for r in self.db.fetch_rows(since=since):
+            cam = r["camera_id"]
+            z = zones.setdefault(cam, {
+                "footfall": 0, "observations": 0, "last_count": 0, "last_seen": 0,
+            })
+            z["footfall"] += int(r["count"])
+            z["observations"] += 1
+            if int(r["timestamp"]) >= int(z["last_seen"]):
+                z["last_seen"] = int(r["timestamp"])
+                z["last_count"] = int(r["count"])
+        return zones
+
+    def staffing_plan(self, days: int = 7) -> list[dict[str, Any]]:
+        """Recommended staff per hour of day, from the last `days` of traffic.
+
+        Rule: recommended = ceil(avg footfall in that hour / staffing
+        threshold), 0 when the hour has no data. This turns the KB's
+        "Staffing Gap" KPI into an actionable daily schedule for cafe owners.
+        """
+        import time
+
+        since = int(time.time()) - int(days) * 86400
+        sums: dict[int, int] = {}
+        counts: dict[int, int] = {}
+        for r in self.db.fetch_rows(since=since):
+            h = (int(r["timestamp"]) % 86400) // 3600
+            sums[h] = sums.get(h, 0) + int(r["count"])
+            counts[h] = counts.get(h, 0) + 1
+        plan = []
+        for h in range(24):
+            n = counts.get(h, 0)
+            avg = sums.get(h, 0) / n if n else 0.0
+            recommended = 0
+            if avg > 0:
+                recommended = max(1, math.ceil(avg / max(1, self.staffing_threshold)))
+            plan.append({
+                "hour": h,
+                "avg_footfall": round(avg, 1),
+                "recommended_staff": recommended,
+            })
+        return plan
+
     # ------------------------------------------------------------- summaries
     def calculate_hourly_metrics(self, now: Optional[int] = None) -> dict[str, Any]:
         """JSON-serializable aggregate used for the dashboard report.
@@ -139,4 +193,7 @@ class KpiEngine:
             "congestion_level": current_congestion["level"],
             "efficiency": f"{efficiency}%",
             "current_count": current,
+            # Operational extras for cafe owners:
+            "zones": self.zone_breakdown(since=today_start),
+            "staffing_plan": self.staffing_plan(days=7),
         }

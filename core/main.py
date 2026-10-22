@@ -85,6 +85,8 @@ class RetailAIDaemon:
         self._last_alert_sent: int = 0
         self._last_alert_text: str = ""
         self._last_gap_count: int = 0
+        # Per-camera health (cafe owners watch for flaky cameras)
+        self.cam_health: dict[str, dict[str, int]] = {}
 
     # ------------------------------------------------------------------ steps
     def sync_config(self) -> None:
@@ -101,6 +103,10 @@ class RetailAIDaemon:
         except CloudSyncError as exc:
             log.warning("sync failed (offline?): %s", exc)
 
+    def _record_health(self, camera_id: str, ok: bool) -> None:
+        h = self.cam_health.setdefault(camera_id, {"ok": 0, "fail": 0})
+        h["ok" if ok else "fail"] += 1
+
     def process_cameras(self) -> dict[str, Optional[str]]:
         """Grab + infer for every camera; returns {cam_id: snapshot_path}."""
         snapshots = snapshot_all(self.cameras, self.cfg.snapshot_dir)
@@ -108,6 +114,7 @@ class RetailAIDaemon:
             cam_id = str(cam.get("id", "unknown"))
             snapshot = snapshots.get(cam_id)
             if not snapshot:
+                self._record_health(cam_id, False)
                 continue
             role = str(cam.get("role", "general"))
             prompt = build_prompt(role, self.ai_prompt)
@@ -124,9 +131,11 @@ class RetailAIDaemon:
             self.last_inference_ms = int((time.monotonic() - t0) * 1000)
             if result is None:
                 self.inference_fail += 1
+                self._record_health(cam_id, False)
                 log.warning("camera %s: inference failed", cam_id)
                 continue
             self.inference_ok += 1
+            self._record_health(cam_id, True)
             self.db.save_telemetry(
                 camera_id=cam_id,
                 raw_text=result["raw_text"],
@@ -174,6 +183,7 @@ class RetailAIDaemon:
             "last_inference_ms": self.last_inference_ms,
             "inference_ok": self.inference_ok,
             "inference_fail": self.inference_fail,
+            "cameras_health": self.cam_health,
         }
         envelope = self.cloud.build_state_envelope(current_status, report, device)
         try:
@@ -195,7 +205,20 @@ class RetailAIDaemon:
             return
         new_gaps = report["staffing_gaps"] > self._last_gap_count
         text = None
-        if status == "Critical":
+        # Off-hours security check (cafe closed but people detected).
+        if self.cfg.open_hours_start != self.cfg.open_hours_end \
+                and report["current_count"] > 0:
+            hour = time.localtime().tm_hour
+            if self.cfg.open_hours_start < self.cfg.open_hours_end:
+                in_hours = self.cfg.open_hours_start <= hour < self.cfg.open_hours_end
+            else:  # overnight schedule, e.g. 18:00 -> 02:00
+                in_hours = hour >= self.cfg.open_hours_start or hour < self.cfg.open_hours_end
+            if not in_hours:
+                text = (
+                    f"🔦 Retail AI — unexpected activity OUTSIDE opening hours: "
+                    f"{report['current_count']} people detected."
+                )
+        if text is None and status == "Critical":
             text = (
                 f"🚨 Retail AI — CRITICAL congestion: {report['current_count']} "
                 f"people in store (index {report['congestion_index']})."
@@ -247,17 +270,59 @@ class RetailAIDaemon:
                     f"• last inference: {self.last_inference_ms or '—'} ms"
                 )
             elif text.startswith("/cameras"):
-                cams = "\n".join(
-                    f"  {c.get('id')} ({c.get('role', 'general')}) — {c.get('url')}"
-                    for c in self.cameras
-                ) or "  none configured"
-                reply = "📹 Cameras:\n" + cams
+                lines = []
+                for c in self.cameras:
+                    h = self.cam_health.get(str(c.get("id")), {"ok": 0, "fail": 0})
+                    status_icon = "🟢" if h["fail"] == 0 else ("🟡" if h["ok"] > h["fail"] else "🔴")
+                    lines.append(
+                        f"{status_icon} {c.get('id')} ({c.get('role', 'general')}) "
+                        f"ok={h['ok']} fail={h['fail']} — {c.get('url')}"
+                    )
+                reply = "📹 Cameras:\n" + ("\n".join(lines) if lines else "  none configured")
+            elif text.startswith("/export"):
+                parts = text.split()
+                days = 1
+                if len(parts) > 1 and parts[1].isdigit():
+                    days = min(max(int(parts[1]), 1), 30)
+                path = self.export_csv(days)
+                if path:
+                    try:
+                        self.cloud.send_document(
+                            chat_id, path, caption=f"📊 Telemetry export — last {days} day(s)"
+                        )
+                        reply = None  # document already sent
+                    except CloudSyncError as exc:
+                        reply = f"Export upload failed: {exc}"
+                else:
+                    reply = "No telemetry in that window yet."
             if reply:
                 try:
                     self.cloud.send_message(chat_id, reply)
                 except CloudSyncError as exc:
                     log.warning("command reply failed: %s", exc)
         self.cloud.pending_commands.clear()
+
+    def export_csv(self, days: int = 1) -> Optional[str]:
+        """Write the last N days of telemetry to a CSV file; return its path."""
+        import csv
+
+        since = int(time.time()) - days * 86400
+        rows = self.db.fetch_rows(since=since)
+        if not rows:
+            return None
+        path = f"logs/export_{int(time.time())}.csv"
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["id", "timestamp", "camera_id", "count",
+                             "congestion_level", "staff_present", "raw_text"])
+            for r in rows:
+                writer.writerow([
+                    r["id"], r["timestamp"], r["camera_id"], r["count"],
+                    r["congestion_level"], r["staff_present"],
+                    (r["raw_text"] or "")[:300],
+                ])
+        log.info("exported %d rows to %s", len(rows), path)
+        return path
 
     # ------------------------------------------------------------------ loop
     def run_forever(self) -> None:

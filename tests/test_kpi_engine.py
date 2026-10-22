@@ -97,6 +97,40 @@ class KpiEngineTests(unittest.TestCase):
         self.assertEqual(report["efficiency"], "0.0%")
         self.assertEqual(report["congestion_level"], "Normal")
 
+    def test_zone_breakdown(self):
+        self._seed()
+        today_start = self.now - (self.now % 86400)
+        zones = self.engine.zone_breakdown(since=today_start)
+        self.assertIn("cam1", zones)
+        self.assertIn("cam2", zones)
+        self.assertEqual(zones["cam1"]["footfall"], 8 * 3 + 9)
+        # latest cam1 observation is the staffing-gap frame (count 9)
+        self.assertEqual(zones["cam1"]["last_count"], 9)
+
+    def test_staffing_plan(self):
+        # staffing_plan() windows on real time.time(), so seed relative to it.
+        import time as _t
+        now = int(_t.time())
+        start = now - (now % 86400)
+        for i in range(3):
+            self.db.save_telemetry(
+                "cam1", "queue", 8, "high", True,
+                timestamp=start + 16 * HOUR + i * 60,
+            )
+        self.db.save_telemetry(
+            "cam1", "crowd", 9, "high", False, timestamp=start + 17 * HOUR
+        )
+        self.db.save_telemetry(
+            "cam2", "quiet", 1, "low", True, timestamp=start + 10 * HOUR
+        )
+        plan = self.engine.staffing_plan(days=7)
+        self.assertEqual(len(plan), 24)
+        by_hour = {p["hour"]: p for p in plan}
+        self.assertEqual(by_hour[16]["recommended_staff"], 2)  # avg 8 → ceil(8/5)=2
+        self.assertEqual(by_hour[10]["recommended_staff"], 1)  # avg 1 → 1
+        self.assertEqual(by_hour[17]["recommended_staff"], 2)  # avg 9 → 2
+        self.assertEqual(by_hour[5]["recommended_staff"], 0)   # no data
+
 
 if __name__ == "__main__":
     unittest.main()
