@@ -19,6 +19,7 @@ cd "$REPO_DIR"
 # --- configurable knobs ------------------------------------------------------
 MODEL_REPO_URL="${MODEL_REPO_URL:-https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF/resolve/main}"
 MODEL_FILE="${MODEL_FILE:-ggml-model-Q4_K_M.gguf}"
+MODEL_DIR="${MODEL_DIR:-models}"
 LLAMA_CPP_URL="${LLAMA_CPP_URL:-https://github.com/ggerganov/llama.cpp.git}"
 SWAP_MB="${SWAP_MB:-2048}"
 
@@ -35,34 +36,55 @@ pkg update -y
 pkg install -y git cmake clang make python python-pip \
     opencv ndk-multilib termux-api termux-services jq wget curl || \
     fail "pkg install failed"
+# Python bindings for cv2 (separate package; tolerate absence on old mirrors)
+pkg install -y opencv-python >/dev/null 2>&1 || \
+    log "WARNING: opencv-python package not found — cv2 may be missing"
 
-# --- 2. 2GB swap (Android OOM protection) --------------------------------------
+# --- 2. 2GB swap (Android OOM protection; needs root on most devices) ----------
 SWAP_FILE="$HOME/.retail-ai-swap.img"
-if swapon --show | grep -q "$SWAP_FILE"; then
-    log "Swap file already active: $SWAP_FILE"
-else
-    if [ ! -f "$SWAP_FILE" ]; then
-        log "Creating ${SWAP_MB}MB swap file (this takes a minute)..."
-        dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_MB" status=progress
-        chmod 600 "$SWAP_FILE"
-        mkswap "$SWAP_FILE"
+if ! command -v mkswap >/dev/null 2>&1 || ! command -v swapon >/dev/null 2>&1; then
+    log "swap tools missing — trying root-repo util-linux (requires a rooted device)..."
+    pkg install -y root-repo util-linux >/dev/null 2>&1 || true
+fi
+if command -v mkswap >/dev/null 2>&1 && command -v swapon >/dev/null 2>&1; then
+    if swapon --show 2>/dev/null | grep -q "$SWAP_FILE"; then
+        log "Swap file already active: $SWAP_FILE"
+    else
+        if [ ! -f "$SWAP_FILE" ]; then
+            log "Creating ${SWAP_MB}MB swap file (this takes a minute)..."
+            dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_MB" status=progress
+            chmod 600 "$SWAP_FILE"
+            mkswap "$SWAP_FILE"
+        fi
+        log "Enabling swap..."
+        if swapon "$SWAP_FILE" 2>/dev/null; then
+            # Persist across reboots (Termux boots run ~/.bashrc on session start)
+            grep -q "retail-ai-swap" "$HOME/.bashrc" 2>/dev/null || \
+                echo "swapon $SWAP_FILE 2>/dev/null || true  # retail-ai swap" >> "$HOME/.bashrc"
+            log "Swap active. Verify with: free -h"
+        else
+            log "WARNING: swapon failed (kernel blocks swap without root?). Continuing without swap."
+        fi
     fi
-    log "Enabling swap..."
-    swapon "$SWAP_FILE"
-    # Persist across reboots (Termux boots run ~/.bashrc on session start)
-    grep -q "retail-ai-swap" "$HOME/.bashrc" 2>/dev/null || \
-        echo "swapon $SWAP_FILE 2>/dev/null || true  # retail-ai swap" >> "$HOME/.bashrc"
-    log "Swap active. Verify with: free -h"
+else
+    log "WARNING: skipping swap (non-rooted device). Android zram still helps;"
+    log "         for heavy inference consider rooting, or use a smaller GGUF quant."
 fi
 
 # --- 3. python virtualenv + dependencies ---------------------------------------
-log "Creating Python virtualenv..."
-python -m venv .venv
+# NOTE: cv2 comes from the system package `opencv-python` (Termux currently has
+# no PyPI opencv wheels for aarch64 + Python 3.14), so the venv reuses the
+# system site-packages via --system-site-packages.
+log "Creating Python virtualenv (with system site-packages)..."
+python -m venv --system-site-packages .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-log "Python deps installed."
+pip install --upgrade pip >/dev/null
+pip install requests python-dotenv || \
+    log "WARNING: pip install failed (network?) — daemon needs requests"
+python -c "import cv2" 2>/dev/null && log "cv2 importable" || \
+    log "WARNING: cv2 not importable — run: pkg install opencv-python"
+log "Python deps ready."
 
 # --- 4. llama.cpp native build --------------------------------------------------
 if [ -x "llama.cpp/build/bin/llama-minicpmv-cli" ]; then
@@ -77,10 +99,13 @@ else
         -DCMAKE_C_FLAGS="-O3 -march=armv8.2a+dotprod" \
         -DCMAKE_CXX_FLAGS="-O3 -march=armv8.2a+dotprod" \
         -DGGML_NATIVE=OFF \
+        -DGGML_OPENMP=OFF \
+        -DLLAMA_CURL=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_SERVER=OFF
-    cmake --build llama.cpp/build --config Release -j"$(nproc)"
+    cmake --build llama.cpp/build --config Release \
+        --target llama-minicpmv-cli -j"$(nproc)"
     log "llama.cpp build finished."
 fi
 
