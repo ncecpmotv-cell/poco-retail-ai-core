@@ -2,8 +2,10 @@
 # termux-services (runit) entrypoint for the Retail AI daemon.
 #
 # INSTALL LOCATION (termux-services convention):
-#   ~/.termux/service/retail-ai/run
-# `sv-enable retail-ai` symlinks it into $PREFIX/var/service/ for runit.
+#   $PREFIX/var/service/retail-ai/run
+# sv-enable/sv-disable toggle a `down` file next to it.
+# IMPORTANT: restart the Termux session after installing termux-services so
+# the runsvdir supervisor starts (sv fails without it).
 # setup.sh installs this automatically.
 #
 # Enable/control with:

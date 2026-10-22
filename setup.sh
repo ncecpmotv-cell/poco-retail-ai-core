@@ -132,10 +132,12 @@ done
 [ -f config.env ] || { cp config.env.example config.env; log "Created config.env — EDIT IT with your BOT_TOKEN etc."; }
 mkdir -p data snapshots logs
 
-# --- 7. termux-services unit ------------------------------------------------------
-# termux-services convention: services live in ~/.termux/service/<name>/run;
-# `sv-enable <name>` symlinks them into $PREFIX/var/service for runit.
-SVDIR="$HOME/.termux/service/retail-ai"
+# --- 7. termux-services unit -----------------------------------------------------
+# termux-services convention (official README): services live in
+# $PREFIX/var/service/<name>/run; sv-enable/sv-disable toggle a `down` file.
+# IMPORTANT: after installing termux-services, restart the Termux session
+# before using sv/sv-enable (that starts the runsvdir supervisor).
+SVDIR="$PREFIX/var/service/retail-ai"
 mkdir -p "$SVDIR"
 cat > "$SVDIR/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
@@ -144,9 +146,9 @@ cd "$REPO_DIR" || exit 1
 exec "$REPO_DIR/.venv/bin/python" "$REPO_DIR/core/main.py" >> "$REPO_DIR/logs/service.log" 2>&1
 EOF
 chmod +x "$SVDIR/run"
-# Remove any older copy placed in the wrong (system) location
-rm -rf "$PREFIX/var/service/retail-ai"
-log "Service installed at $SVDIR — enable with: sv-enable retail-ai && sv up retail-ai"
+rm -rf "$HOME/.termux/service/retail-ai"
+log "Service installed at $SVDIR"
+log "Restart Termux now, then: sv-enable retail-ai && sv up retail-ai"
 
 # --- 8. wake lock ----------------------------------------------------------------
 termux-wake-lock 2>/dev/null && log "Wake lock acquired (keeps CPU alive in deep sleep)." || \
