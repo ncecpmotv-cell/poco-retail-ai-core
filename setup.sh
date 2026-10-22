@@ -37,7 +37,8 @@ log "Detected Termux environment: $(uname -m)"
 log "Updating package index and installing base packages..."
 pkg update -y
 pkg install -y git cmake clang make python python-pip \
-    opencv python-numpy ndk-multilib termux-api termux-services jq wget curl || \
+    opencv python-numpy libavif libheif ndk-multilib termux-api \
+    termux-services jq wget curl || \
     fail "pkg install failed"
 # Python bindings for cv2 (separate package; tolerate absence on old mirrors)
 pkg install -y opencv-python >/dev/null 2>&1 || \
