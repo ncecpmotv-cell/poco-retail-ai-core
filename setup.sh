@@ -133,7 +133,9 @@ done
 mkdir -p data snapshots logs
 
 # --- 7. termux-services unit ------------------------------------------------------
-SVDIR="$PREFIX/var/service/retail-ai"
+# termux-services convention: services live in ~/.termux/service/<name>/run;
+# `sv-enable <name>` symlinks them into $PREFIX/var/service for runit.
+SVDIR="$HOME/.termux/service/retail-ai"
 mkdir -p "$SVDIR"
 cat > "$SVDIR/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
@@ -142,7 +144,9 @@ cd "$REPO_DIR" || exit 1
 exec "$REPO_DIR/.venv/bin/python" "$REPO_DIR/core/main.py" >> "$REPO_DIR/logs/service.log" 2>&1
 EOF
 chmod +x "$SVDIR/run"
-log "Service installed at $SVDIR"
+# Remove any older copy placed in the wrong (system) location
+rm -rf "$PREFIX/var/service/retail-ai"
+log "Service installed at $SVDIR — enable with: sv-enable retail-ai && sv up retail-ai"
 
 # --- 8. wake lock ----------------------------------------------------------------
 termux-wake-lock 2>/dev/null && log "Wake lock acquired (keeps CPU alive in deep sleep)." || \
