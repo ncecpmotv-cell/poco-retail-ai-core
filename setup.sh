@@ -34,7 +34,7 @@ log "Detected Termux environment: $(uname -m)"
 log "Updating package index and installing base packages..."
 pkg update -y
 pkg install -y git cmake clang make python python-pip \
-    opencv ndk-multilib termux-api termux-services jq wget curl || \
+    opencv python-numpy ndk-multilib termux-api termux-services jq wget curl || \
     fail "pkg install failed"
 # Python bindings for cv2 (separate package; tolerate absence on old mirrors)
 pkg install -y opencv-python >/dev/null 2>&1 || \
@@ -83,7 +83,7 @@ pip install --upgrade pip >/dev/null
 pip install requests python-dotenv || \
     log "WARNING: pip install failed (network?) — daemon needs requests"
 python -c "import cv2" 2>/dev/null && log "cv2 importable" || \
-    log "WARNING: cv2 not importable — run: pkg install opencv-python"
+    log "WARNING: cv2 not importable — run: pkg install opencv-python python-numpy"
 log "Python deps ready."
 
 # --- 4. llama.cpp native build --------------------------------------------------
