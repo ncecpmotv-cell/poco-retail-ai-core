@@ -1,12 +1,3 @@
-# Optional GitHub Actions CI for poco-retail-ai-core.
-#
-# HOW TO ENABLE:
-#   1. Copy this file to  .github/workflows/tests.yml
-#   2. Push. Note: GitHub rejects pushes that create workflow files unless
-#      the token has the `workflow` scope (OAuth apps) — use a classic PAT
-#      or an SSH key push.
-# The unittest suite itself runs anywhere with just `python3` — see README.
-
 name: tests
 
 on:

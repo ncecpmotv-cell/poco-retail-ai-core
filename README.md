@@ -7,7 +7,7 @@ CCTV analytics box: it grabs frames from RTSP cameras, runs **MiniCPM-V**
 vision inference through a locally compiled **llama.cpp** binary, stores every
 observation in a local **SQLite** BI hub, computes retail KPIs, and publishes a
 pinned JSON "state" to a **private Telegram channel** that the companion
-Mini App ([`telegram-retail-ai-dashboard`](https://github.com/m0502369637-hub/telegram-retail-ai-dashboard))
+Mini App ([`telegram-retail-ai-dashboard`](https://github.com/ncecpmotv-cell/telegram-retail-ai-dashboard))
 reads.
 
 > 📄 Full system context: see the project knowledge base and the companion
@@ -105,7 +105,7 @@ pkg update -y
 ### 2. Clone and run the setup script
 
 ```bash
-git clone https://github.com/m0502369637-hub/poco-retail-ai-core.git
+git clone https://github.com/ncecpmotv-cell/poco-retail-ai-core.git
 cd poco-retail-ai-core
 chmod +x setup.sh && ./setup.sh
 ```
@@ -191,11 +191,10 @@ python3 -m unittest discover -s tests -v   # stdlib-only, no pip installs needed
 python3 -m py_compile analytics/*.py core/*.py tests/*.py
 ```
 
-CI: the unittest suite runs anywhere with a plain `python3` — no installs
-needed. An optional GitHub Actions workflow is provided at
-[`ci/github-actions-tests.yml`](ci/github-actions-tests.yml); to enable it,
-copy it to `.github/workflows/tests.yml` and push with a token that has the
-`workflow` scope (see the header comment in the file).
+CI: GitHub Actions (`.github/workflows/tests.yml`) runs the same suite on every
+push and pull request (Python 3.10 & 3.12). The `analytics/` package and tests
+deliberately import **only the standard library**, so you can validate KPI
+math anywhere, even without OpenCV/requests.
 
 ---
 
@@ -252,7 +251,7 @@ poco-retail-ai-core/
 │   └── main.py               # the 60s daemon loop
 ├── services/retail-ai.service# termux-services (runit) unit
 ├── tests/                    # unittest suite (stdlib only)
-├── ci/                       # optional GitHub Actions workflow
+├── .github/workflows/tests.yml # CI — unittest suite on every push
 ├── docs/ARCHITECTURE.md      # module map + design decisions
 └── config.env.example        # configuration template
 ```
