@@ -19,7 +19,7 @@ RTSP cameras
     │  sequential open→grab→release (CAP_PROP_BUFFERSIZE=1)
     ▼
 snapshots/<camera>_snapshot.jpg
-    │  llama-minicpmv-cli -m models/<gguf> --image ... -p <role prompt>
+    │  llama-mtmd-cli -m models/<gguf> --image ... -p <role prompt>
     ▼
 {count, staff_present, congestion, raw_text}
     │  db_handler.save_telemetry()

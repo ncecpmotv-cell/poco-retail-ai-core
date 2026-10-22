@@ -24,7 +24,7 @@ reads.
 │  RTSP cam 2 ─┼─► stream_manager (sequential, BUFFERSIZE=1) ── snapshot ─┐  │
 │  RTSP cam N ─┘                                                          │  │
 │                                                                         ▼  │
-│                              inference_engine ── llama-minicpmv-cli        │
+│                              inference_engine ── llama-mtmd-cli        │
 │                                   │  (native C++ subprocess)               │
 │                                   ▼                                        │
 │                         analytics/db_handler ──► SQLite (WAL)              │
@@ -117,7 +117,7 @@ chmod +x setup.sh && ./setup.sh
    inference) and persists it in `~/.bashrc`.
 3. Creates a Python venv and installs `requirements.txt`.
 4. Clones and builds **llama.cpp** with native Snapdragon 870 flags
-   (`-march=armv8.2a+dotprod -O3`), producing `llama-minicpmv-cli`.
+   (`-march=armv8.2a+dotprod -O3`), producing `llama-mtmd-cli`.
 5. Downloads **MiniCPM-V 4.7B GGUF** (~3GB) from Hugging Face into `models/`.
    *If the filename 404s, check the file listing at
    <https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf> and re-run with
@@ -246,7 +246,7 @@ poco-retail-ai-core/
 ├── core/
 │   ├── config.py             # typed config loader
 │   ├── stream_manager.py     # sequential RTSP snapshot grabber
-│   ├── inference_engine.py   # llama-minicpmv-cli wrapper + output parser
+│   ├── inference_engine.py   # llama-mtmd-cli wrapper + output parser
 │   ├── cloud_sync.py         # channel-bus envelopes + subscription firewall
 │   └── main.py               # the 60s daemon loop
 ├── services/retail-ai.service# termux-services (runit) unit

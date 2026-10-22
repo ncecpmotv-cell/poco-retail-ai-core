@@ -1,10 +1,11 @@
 """MiniCPM-V inference wrapper.
 
-Runs the locally compiled `llama-minicpmv-cli` binary as a subprocess (the KB
-design: native C++ inference, no heavy Python wrappers), injects a
-camera-role-aware prompt and parses the cleaned stdout into structured
-telemetry. A malformed model answer degrades to safe defaults instead of
-crashing the loop.
+Runs the locally compiled `llama-mtmd-cli` binary (llama.cpp's unified
+multimodal CLI; the older `llama-minicpmv-cli` is deprecated upstream) as a
+subprocess — the KB design: native C++ inference, no heavy Python wrappers —
+injects a camera-role-aware prompt and parses the cleaned stdout into
+structured telemetry. A malformed model answer degrades to safe defaults
+instead of crashing the loop.
 """
 
 from __future__ import annotations

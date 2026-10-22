@@ -91,8 +91,8 @@ python -c "import cv2" 2>/dev/null && log "cv2 importable" || \
 log "Python deps ready."
 
 # --- 4. llama.cpp native build --------------------------------------------------
-if [ -x "llama.cpp/build/bin/llama-minicpmv-cli" ]; then
-    log "llama-minicpmv-cli already built; skipping."
+if [ -x "llama.cpp/build/bin/llama-mtmd-cli" ]; then
+    log "llama-mtmd-cli already built; skipping."
 else
     log "Cloning and building llama.cpp for Snapdragon 870 (armv8.2a+dotprod)..."
     if [ ! -d llama.cpp ]; then
@@ -109,7 +109,7 @@ else
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_SERVER=OFF
     cmake --build llama.cpp/build --config Release \
-        --target llama-minicpmv-cli -j"$(nproc)"
+        --target llama-mtmd-cli -j"$(nproc)"
     log "llama.cpp build finished."
 fi
 
