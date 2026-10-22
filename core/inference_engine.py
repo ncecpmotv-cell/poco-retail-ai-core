@@ -124,9 +124,8 @@ def run_inference(
         return None
 
     if proc.returncode != 0:
-        log.error(
-            "inference exited %d: %s", proc.returncode, (proc.stderr or "")[-400:]
-        )
+        err = ((proc.stderr or "").strip() or (proc.stdout or "").strip())[-400:]
+        log.error("inference exited %d: %s", proc.returncode, err)
         return None
 
     return parse_inference_output(proc.stdout)
