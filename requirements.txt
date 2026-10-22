@@ -1,0 +1,6 @@
+# Runtime dependencies for the Retail AI Core daemon.
+# NOTE: analytics/ and tests/ use only the Python standard library,
+# so the unittest suite runs without installing anything.
+opencv-python>=4.8.0
+requests>=2.31.0
+python-dotenv>=1.0.0

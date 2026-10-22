@@ -1,0 +1,17 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# termux-services (runit) entrypoint for the Retail AI daemon.
+#
+# Installed by setup.sh into $PREFIX/var/service/retail-ai/run with the
+# correct absolute paths. This copy documents the expected layout.
+#
+# Enable/control with:
+#   sv-enable retail-ai     # start on boot
+#   sv up retail-ai         # start now
+#   sv status retail-ai     # status
+#   sv down retail-ai       # stop
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_DIR" || exit 1
+exec "$REPO_DIR/.venv/bin/python" "$REPO_DIR/core/main.py" \
+    >> "$REPO_DIR/logs/service.log" 2>&1

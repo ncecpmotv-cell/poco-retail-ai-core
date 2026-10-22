@@ -1,0 +1,26 @@
+# Secrets & local state — never commit
+config.env
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local runtime data
+data/
+snapshots/
+logs/
+*.db
+*.db-wal
+*.db-shm
+
+# Large downloads
+models/
+llama.cpp/
+
+# OS noise
+.DS_Store

@@ -1,0 +1,131 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# =============================================================================
+# Retail AI Core — Termux bootstrap for POCO F3 (Snapdragon 870, ARM64)
+#
+# Idempotent: safe to re-run. Sets up:
+#   1. 2GB Linux swap file          (prevents Android OOM kills)
+#   2. Toolchain + Python + OpenCV
+#   3. llama.cpp built for the SD870 (native armv8.2a+dotprod optimizations)
+#   4. MiniCPM-V GGUF model download
+#   5. termux-services unit + wake lock
+#
+# Usage:  chmod +x setup.sh && ./setup.sh
+# =============================================================================
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_DIR"
+
+# --- configurable knobs ------------------------------------------------------
+MODEL_REPO_URL="${MODEL_REPO_URL:-https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF/resolve/main}"
+MODEL_FILE="${MODEL_FILE:-ggml-model-Q4_K_M.gguf}"
+LLAMA_CPP_URL="${LLAMA_CPP_URL:-https://github.com/ggerganov/llama.cpp.git}"
+SWAP_MB="${SWAP_MB:-2048}"
+
+log()  { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }
+fail() { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- 0. sanity -----------------------------------------------------------------
+command -v pkg >/dev/null 2>&1 || fail "This script must run inside Termux."
+log "Detected Termux environment: $(uname -m)"
+
+# --- 1. base packages ----------------------------------------------------------
+log "Updating package index and installing base packages..."
+pkg update -y
+pkg install -y git cmake clang make python python-pip \
+    opencv ndk-multilib termux-api termux-services jq wget curl || \
+    fail "pkg install failed"
+
+# --- 2. 2GB swap (Android OOM protection) --------------------------------------
+SWAP_FILE="$HOME/.retail-ai-swap.img"
+if swapon --show | grep -q "$SWAP_FILE"; then
+    log "Swap file already active: $SWAP_FILE"
+else
+    if [ ! -f "$SWAP_FILE" ]; then
+        log "Creating ${SWAP_MB}MB swap file (this takes a minute)..."
+        dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_MB" status=progress
+        chmod 600 "$SWAP_FILE"
+        mkswap "$SWAP_FILE"
+    fi
+    log "Enabling swap..."
+    swapon "$SWAP_FILE"
+    # Persist across reboots (Termux boots run ~/.bashrc on session start)
+    grep -q "retail-ai-swap" "$HOME/.bashrc" 2>/dev/null || \
+        echo "swapon $SWAP_FILE 2>/dev/null || true  # retail-ai swap" >> "$HOME/.bashrc"
+    log "Swap active. Verify with: free -h"
+fi
+
+# --- 3. python virtualenv + dependencies ---------------------------------------
+log "Creating Python virtualenv..."
+python -m venv .venv
+# shellcheck disable=SC1091
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+log "Python deps installed."
+
+# --- 4. llama.cpp native build --------------------------------------------------
+if [ -x "llama.cpp/build/bin/llama-minicpmv-cli" ]; then
+    log "llama-minicpmv-cli already built; skipping."
+else
+    log "Cloning and building llama.cpp for Snapdragon 870 (armv8.2a+dotprod)..."
+    if [ ! -d llama.cpp ]; then
+        git clone --depth 1 "$LLAMA_CPP_URL" llama.cpp
+    fi
+    cmake -S llama.cpp -B llama.cpp/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_FLAGS="-O3 -march=armv8.2a+dotprod" \
+        -DCMAKE_CXX_FLAGS="-O3 -march=armv8.2a+dotprod" \
+        -DGGML_NATIVE=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_SERVER=OFF
+    cmake --build llama.cpp/build --config Release -j"$(nproc)"
+    log "llama.cpp build finished."
+fi
+
+# --- 5. MiniCPM-V model download ------------------------------------------------
+mkdir -p "$MODEL_DIR"
+if [ -f "$MODEL_DIR/$MODEL_FILE" ]; then
+    log "Model already present: $MODEL_DIR/$MODEL_FILE"
+else
+    log "Downloading MiniCPM-V GGUF (~3GB, may take a while)..."
+    curl -fL --retry 3 -C - \
+        "$MODEL_REPO_URL/$MODEL_FILE" \
+        -o "$MODEL_DIR/$MODEL_FILE" || \
+        fail "Model download failed. Check MODEL_FILE/MODEL_REPO_URL against the
+        Hugging Face repo file listing: https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF"
+fi
+
+# --- 6. config + directories -----------------------------------------------------
+[ -f config.env ] || { cp config.env.example config.env; log "Created config.env — EDIT IT with your BOT_TOKEN etc."; }
+mkdir -p data snapshots logs
+
+# --- 7. termux-services unit ------------------------------------------------------
+SVDIR="$PREFIX/var/service/retail-ai"
+mkdir -p "$SVDIR"
+cat > "$SVDIR/run" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+# termux-services (runit) entrypoint for the Retail AI daemon
+cd "$REPO_DIR" || exit 1
+exec "$REPO_DIR/.venv/bin/python" "$REPO_DIR/core/main.py" >> "$REPO_DIR/logs/service.log" 2>&1
+EOF
+chmod +x "$SVDIR/run"
+log "Service installed at $SVDIR"
+
+# --- 8. wake lock ----------------------------------------------------------------
+termux-wake-lock 2>/dev/null && log "Wake lock acquired (keeps CPU alive in deep sleep)." || \
+    log "termux-wake-lock failed — run it manually after granting Termux:API permissions."
+
+# --- done ------------------------------------------------------------------------
+cat <<DONE
+
+================================================================================
+ Setup complete.
+ Next steps:
+   1. Edit config.env  (BOT_TOKEN, STATE_CHANNEL_ID, cameras, capacity)
+   2. Quick test:      .venv/bin/python -c "from core.config import Config; print(Config.load())"
+   3. Start daemon:    sv-enable retail-ai && sv up retail-ai
+   4. Check logs:      tail -f logs/service.log
+================================================================================
+DONE
