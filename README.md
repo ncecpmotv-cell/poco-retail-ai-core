@@ -1,5 +1,7 @@
 # 📦 poco-retail-ai-core
 
+> 📖 العربية: [النسخة العربية من الدليل](README.ar.md) — [English version](README.md)
+
 **On-premise Edge-AI retail analytics daemon for Android/Termux.**
 
 Turn a budget Android phone (POCO F3, Snapdragon 870) into a zero-cloud-cost
