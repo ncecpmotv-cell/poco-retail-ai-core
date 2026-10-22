@@ -105,7 +105,7 @@ def run_inference(
         "--image", image_path,
         "-p", prompt,
         "--temp", "0.1",
-        "-n", "256",
+        "-n", "96",
     ]
     try:
         proc = subprocess.run(
