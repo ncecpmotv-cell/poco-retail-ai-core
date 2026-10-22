@@ -138,6 +138,138 @@ class KpiEngine:
             })
         return plan
 
+    # -------------------------------------------------- day vs typical day
+    def weekday_baseline(self, now: Optional[int] = None, weeks: int = 4) -> dict[str, Any]:
+        """Compare today's traffic (so far) with a typical same-weekday.
+
+        Baseline = per-hour average over the last `weeks` occurrences of the
+        same weekday, compared hour-aligned with today up to the current hour.
+        |pct_diff| >= 50% marks an anomalous day (e.g. "way quieter than a
+        typical Tuesday" — closed early? camera problem?).
+        """
+        import datetime as dt
+        import time
+
+        now = int(now) if now is not None else int(time.time())
+        today = dt.datetime.fromtimestamp(now, tz=dt.timezone.utc)
+        wd = today.weekday()
+        since = now - int(weeks) * 7 * 86400
+
+        sums: dict[int, int] = {}
+        counts: dict[int, int] = {}
+        for r in self.db.fetch_rows(since=since):
+            d = dt.datetime.fromtimestamp(int(r["timestamp"]), tz=dt.timezone.utc)
+            if d.weekday() != wd:
+                continue
+            sums[d.hour] = sums.get(d.hour, 0) + int(r["count"])
+            counts[d.hour] = counts.get(d.hour, 0) + 1
+
+        today_start = now - (now % 86400)
+        today_by_hour: dict[int, int] = {}
+        for r in self.db.fetch_rows(since=today_start):
+            h = (int(r["timestamp"]) % 86400) // 3600
+            today_by_hour[h] = today_by_hour.get(h, 0) + int(r["count"])
+
+        current_hour = (now % 86400) // 3600
+        today_so_far = sum(v for h, v in today_by_hour.items() if h <= current_hour)
+        baseline_so_far = sum(
+            sums[h] / counts[h] for h in range(current_hour + 1) if counts.get(h)
+        )
+        baseline_full_day = sum(
+            sums[h] / counts[h] for h in range(24) if counts.get(h)
+        )
+        pct = None
+        if baseline_so_far > 0:
+            pct = round(100.0 * (today_so_far - baseline_so_far) / baseline_so_far, 1)
+        anomaly = bool(baseline_so_far > 0 and pct is not None and abs(pct) >= 50)
+        if baseline_so_far <= 0:
+            status = "insufficient_data"
+        elif pct >= 15:
+            status = "up"
+        elif pct <= -15:
+            status = "down"
+        else:
+            status = "normal"
+        return {
+            "weekday": today.strftime("%A"),
+            "today_so_far": today_so_far,
+            "baseline_so_far": round(baseline_so_far, 1),
+            "baseline_full_day": round(baseline_full_day, 1),
+            "pct_diff": pct,
+            "status": status,
+            "anomaly": anomaly,
+        }
+
+    # ------------------------------------------------------------ dwell
+    def dwell_estimate(self, window_seconds: int = 3 * 3600) -> dict[str, Any]:
+        """Approximate visitor dwell time via Little's Law (L = λ·W).
+
+        L = average occupancy over the window; λ = arrival rate, approximated
+        by the sum of positive count increases between consecutive
+        observations of the same camera (no identity tracking — a documented
+        approximation). W = L / λ in minutes.
+        """
+        import time
+
+        since = int(time.time()) - int(window_seconds)
+        rows = self.db.fetch_rows(since=since)
+        per_cam: dict[str, list[Any]] = {}
+        for r in rows:
+            per_cam.setdefault(r["camera_id"], []).append(r)
+        occ_sum = 0
+        obs = 0
+        arrivals = 0
+        for cam_rows in per_cam.values():
+            prev: Optional[int] = None
+            for r in sorted(cam_rows, key=lambda x: int(x["timestamp"])):
+                c = int(r["count"])
+                occ_sum += c
+                obs += 1
+                if prev is not None and c > prev:
+                    arrivals += c - prev
+                prev = c
+        avg_occ = (occ_sum / obs) if obs else 0.0
+        hours = max(window_seconds / 3600.0, 0.01)
+        lam = arrivals / hours
+        dwell_min = None
+        if lam > 0:
+            dwell_min = round(60.0 * avg_occ / lam, 1)
+        return {
+            "avg_occupancy": round(avg_occ, 1),
+            "arrivals": arrivals,
+            "dwell_minutes": dwell_min,
+        }
+
+    # ------------------------------------------------------- weekly summary
+    def weekly_summary(self, days: int = 7) -> dict[str, Any]:
+        """One-page weekly ops summary (used by the Monday auto-report)."""
+        import datetime as dt
+        import time
+
+        now = int(time.time())
+        since = now - int(days) * 86400
+        rows = self.db.fetch_rows(since=since)
+        per_day: dict[str, int] = {}
+        per_hour: dict[int, int] = {}
+        for r in rows:
+            d = dt.datetime.fromtimestamp(int(r["timestamp"]), tz=dt.timezone.utc)
+            per_day[d.strftime("%Y-%m-%d")] = per_day.get(d.strftime("%Y-%m-%d"), 0) + int(r["count"])
+            per_hour[d.hour] = per_hour.get(d.hour, 0) + int(r["count"])
+        total = sum(per_day.values())
+        days_with_data = len(per_day)
+        busiest_day = max(per_day.items(), key=lambda kv: kv[1])[0] if per_day else None
+        peak_hour = max(per_hour.items(), key=lambda kv: kv[1])[0] if per_hour else None
+        return {
+            "total_footfall": total,
+            "days_with_data": days_with_data,
+            "avg_daily": round(total / days_with_data, 1) if days_with_data else 0.0,
+            "busiest_day": busiest_day,
+            "peak_hour": f"{peak_hour:02d}:00" if peak_hour is not None else None,
+            "dwell": self.dwell_estimate(window_seconds=days * 86400),
+            "staffing_gaps": len(self.staffing_gaps(since=since)),
+            "today_vs_baseline": self.weekday_baseline(now=now),
+        }
+
     # ------------------------------------------------------------- summaries
     def calculate_hourly_metrics(self, now: Optional[int] = None) -> dict[str, Any]:
         """JSON-serializable aggregate used for the dashboard report.
@@ -196,4 +328,6 @@ class KpiEngine:
             # Operational extras for cafe owners:
             "zones": self.zone_breakdown(since=today_start),
             "staffing_plan": self.staffing_plan(days=7),
+            "today_vs_baseline": self.weekday_baseline(now=now),
+            "dwell": self.dwell_estimate(),
         }

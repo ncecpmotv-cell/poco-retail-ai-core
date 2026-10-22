@@ -131,6 +131,54 @@ class KpiEngineTests(unittest.TestCase):
         self.assertEqual(by_hour[17]["recommended_staff"], 2)  # avg 9 → 2
         self.assertEqual(by_hour[5]["recommended_staff"], 0)   # no data
 
+    def test_weekday_baseline_anomaly(self):
+        import datetime as dt
+        import time as _t
+
+        now = int(_t.time())
+        today = dt.datetime.fromtimestamp(now, tz=dt.timezone.utc)
+        # Same weekday, one week ago, at an hour <= current hour:
+        past = now - 7 * 86400
+        past_d = dt.datetime.fromtimestamp(past, tz=dt.timezone.utc)
+        if past_d.weekday() != today.weekday():  # ensure same weekday
+            past -= 86400
+        past_hour = min(past, now - 3600)
+        h = (past_hour % 86400) // 3600
+        self.db.save_telemetry("cam1", "typical", 10, "medium", True, timestamp=past_hour)
+        # Today: far quieter at the same aligned hour (use hour 0..h<=current)
+        today_slot = now - (now % 86400) + h * 3600
+        if today_slot > now:
+            today_slot = now - 60
+        self.db.save_telemetry("cam1", "quiet today", 1, "low", True, timestamp=today_slot)
+        base = self.engine.weekday_baseline(now=now, weeks=2)
+        self.assertEqual(base["status"], "down")
+        self.assertTrue(base["anomaly"])
+        self.assertLess(base["pct_diff"], -50)
+
+    def test_dwell_estimate(self):
+        import time as _t
+
+        now = int(_t.time())
+        # Rising counts = arrivals; avg occupancy ~ (2+5)/2 = 3.5
+        self.db.save_telemetry("cam1", "arrive", 2, "low", True, timestamp=now - 7200)
+        self.db.save_telemetry("cam1", "more arrive", 5, "medium", True, timestamp=now - 3600)
+        d = self.engine.dwell_estimate(window_seconds=4 * 3600)
+        self.assertEqual(d["arrivals"], 3)
+        self.assertAlmostEqual(d["avg_occupancy"], 3.5, places=1)
+        self.assertIsNotNone(d["dwell_minutes"])
+        self.assertGreater(d["dwell_minutes"], 0)
+
+    def test_weekly_summary_shape(self):
+        import time as _t
+
+        now = int(_t.time())
+        self.db.save_telemetry("cam1", "x", 4, "low", True, timestamp=now - 3600)
+        s = self.engine.weekly_summary(days=7)
+        self.assertGreaterEqual(s["total_footfall"], 4)
+        self.assertGreaterEqual(s["days_with_data"], 1)
+        self.assertIn("dwell", s)
+        self.assertIn("today_vs_baseline", s)
+
 
 if __name__ == "__main__":
     unittest.main()

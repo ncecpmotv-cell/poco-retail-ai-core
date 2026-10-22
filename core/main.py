@@ -223,6 +223,14 @@ class RetailAIDaemon:
                 f"🚨 Retail AI — CRITICAL congestion: {report['current_count']} "
                 f"people in store (index {report['congestion_index']})."
             )
+        if text is None:
+            base = report.get("today_vs_baseline") or {}
+            if base.get("anomaly") and (base.get("pct_diff") or 0) < 0:
+                text = (
+                    f"📉 Retail AI — traffic is {base['pct_diff']}% below a "
+                    f"typical {base.get('weekday', 'day')} so far. "
+                    "Worth checking (closed early? camera issue?)."
+                )
         elif new_gaps and report["staffing_gaps"] > 0:
             text = (
                 f"⚠️ Retail AI — staffing gap detected: {report['staffing_gaps']} "
@@ -243,6 +251,50 @@ class RetailAIDaemon:
             log.warning("alert send failed: %s", exc)
         self._last_gap_count = report["staffing_gaps"]
 
+    # -------------------------------------------------------- weekly report
+    def maybe_weekly_report(self) -> None:
+        """Send the Monday morning summary once per week (state persisted)."""
+        import json
+
+        if not self.cfg.weekly_report_enabled or self.cloud is None:
+            return
+        chat_id = self.cfg.alert_chat_id or self.cfg.user_id
+        if not chat_id:
+            return
+        lt = time.localtime()
+        if lt.tm_wday != 0 or lt.tm_hour < self.cfg.weekly_report_hour:
+            return
+        key = f"{lt.tm_year}-{lt.tm_yday}"
+        state_file = "logs/weekly_state.json"
+        try:
+            with open(state_file) as fh:
+                sent = json.load(fh)
+        except (OSError, ValueError):
+            sent = None
+        if sent == key:
+            return
+        summary = self.kpi.weekly_summary(days=7)
+        dwell = (summary.get("dwell") or {}).get("dwell_minutes")
+        base = summary.get("today_vs_baseline") or {}
+        text = (
+            "📊 Weekly Retail AI report\n"
+            f"• total footfall: {summary['total_footfall']} "
+            f"(avg {summary['avg_daily']}/day over {summary['days_with_data']} days)\n"
+            f"• busiest day: {summary['busiest_day'] or '—'}\n"
+            f"• peak hour: {summary['peak_hour'] or '—'}\n"
+            f"• staffing gaps: {summary['staffing_gaps']}\n"
+            f"• avg dwell: {dwell if dwell is not None else '—'} min\n"
+            f"• today vs typical {base.get('weekday', 'day')}: "
+            f"{base.get('pct_diff', '—')}%"
+        )
+        try:
+            self.cloud.send_message(chat_id, text)
+            with open(state_file, "w") as fh:
+                json.dump(key, fh)
+            log.info("weekly report sent")
+        except (CloudSyncError, OSError) as exc:
+            log.warning("weekly report failed: %s", exc)
+
     # -------------------------------------------------------------- commands
     def handle_commands(self) -> None:
         """Answer /status, /cameras, /ping from the owner/admin chat."""
@@ -259,6 +311,8 @@ class RetailAIDaemon:
                 reply = "pong 🟢"
             elif text.startswith("/status"):
                 report = self.kpi.calculate_hourly_metrics()
+                base = report.get("today_vs_baseline") or {}
+                dwell = (report.get("dwell") or {}).get("dwell_minutes")
                 reply = (
                     "📊 Retail AI status\n"
                     f"• people now: {report['current_count']}\n"
@@ -266,6 +320,9 @@ class RetailAIDaemon:
                     f"({report['congestion_index']})\n"
                     f"• footfall today: {report['footfall_today']}\n"
                     f"• staffing gaps (24h): {report['staffing_gaps']}\n"
+                    f"• today vs typical {base.get('weekday', 'day')}: "
+                    f"{base.get('pct_diff', '—')}%\n"
+                    f"• avg dwell (3h): {dwell if dwell is not None else '—'} min\n"
                     f"• uptime: {int(time.monotonic() - self._started_mono) // 60} min\n"
                     f"• last inference: {self.last_inference_ms or '—'} ms"
                 )
@@ -344,6 +401,7 @@ class RetailAIDaemon:
             else:
                 log.info("subscription expired; inference paused")
             self.publish_state()
+            self.maybe_weekly_report()
             elapsed = time.monotonic() - started
             time.sleep(max(0.0, self.cfg.loop_interval_seconds - elapsed))
         self.db.close()

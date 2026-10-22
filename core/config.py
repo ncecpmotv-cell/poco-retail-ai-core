@@ -87,6 +87,10 @@ class Config:
     open_hours_start: int = 0   # e.g. 8  (8:00)
     open_hours_end: int = 0     # e.g. 23 (23:00); start==end disables the check
 
+    # Weekly auto-report (sent Mondays at WEEKLY_REPORT_HOUR)
+    weekly_report_enabled: bool = True
+    weekly_report_hour: int = 9
+
     # Paths
     db_path: str = "data/retail_ai.db"
     snapshot_dir: str = "snapshots"
@@ -128,6 +132,8 @@ class Config:
             ),
             open_hours_start=_env_int("OPEN_HOURS_START", 0),
             open_hours_end=_env_int("OPEN_HOURS_END", 0),
+            weekly_report_enabled=_env("WEEKLY_REPORT_ENABLED", "true").lower() in ("1", "true", "yes"),
+            weekly_report_hour=_env_int("WEEKLY_REPORT_HOUR", 9),
             db_path=_env("DB_PATH", "data/retail_ai.db"),
             snapshot_dir=_env("SNAPSHOT_DIR", "snapshots"),
             model_dir=_env("MODEL_DIR", "models"),
