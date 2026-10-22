@@ -197,6 +197,10 @@ Five operational features built for cafe/retail owners:
 | **Off-hours security alerts** | Set `OPEN_HOURS_START`/`OPEN_HOURS_END` in config.env — activity detected outside opening hours sends an instant chat alert |
 | **CSV export** | Send `/export 7` to the bot in private chat — it replies with a CSV document of the last N days of telemetry (max 30) |
 | **Camera health** | Every camera's grab/inference ok/fail counters ship in the state envelope — dashboard shows 🟢/🟡/🔴 per camera, and `/cameras` includes health |
+| **Today vs typical weekday** | `today_vs_baseline` compares today's traffic with the 4-week average of the same weekday — ±50% marks an anomalous day and pings your chat ("way quieter than a typical Tuesday?") |
+| **Dwell time estimate** | `dwell` approximates visitor dwell via Little's Law (avg occupancy ÷ arrival rate); shown in the dashboard and `/status` |
+| **Weekly auto-report** | Every Monday at `WEEKLY_REPORT_HOUR` (default 9) a summary (footfall, busiest day, peak hour, gaps, dwell) is sent to your chat; state persisted in `logs/weekly_state.json` |
+
 
 ## 🧪 Tests & development
 
