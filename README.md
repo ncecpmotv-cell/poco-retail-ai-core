@@ -186,6 +186,18 @@ EOF
 
 ---
 
+## 🏪 Cafe operations toolkit (v2)
+
+Five operational features built for cafe/retail owners:
+
+| Feature | How to use |
+|---|---|
+| **Zone analytics** | The report now carries a per-camera `zones` breakdown (footfall today, last count) — the dashboard shows zone cards; spot which area (counter/entrance/seating) is busiest |
+| **Staffing plan** | `staffing_plan` in the report = recommended staff per hour from the last 7 days of traffic (`ceil(avg count / STAFFING_THRESHOLD)`) — dashboard renders it as bars |
+| **Off-hours security alerts** | Set `OPEN_HOURS_START`/`OPEN_HOURS_END` in config.env — activity detected outside opening hours sends an instant chat alert |
+| **CSV export** | Send `/export 7` to the bot in private chat — it replies with a CSV document of the last N days of telemetry (max 30) |
+| **Camera health** | Every camera's grab/inference ok/fail counters ship in the state envelope — dashboard shows 🟢/🟡/🔴 per camera, and `/cameras` includes health |
+
 ## 🧪 Tests & development
 
 ```bash
