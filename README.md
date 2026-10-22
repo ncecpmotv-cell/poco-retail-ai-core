@@ -182,9 +182,11 @@ python3 -m unittest discover -s tests -v   # stdlib-only, no pip installs needed
 python3 -m py_compile analytics/*.py core/*.py tests/*.py
 ```
 
-CI (`.github/workflows/tests.yml`) runs the same suite on Python 3.10 & 3.12.
-The `analytics/` package and tests deliberately import **only the standard
-library**, so you can validate KPI math anywhere, even without OpenCV/requests.
+CI: the unittest suite runs anywhere with a plain `python3` — no installs
+needed. An optional GitHub Actions workflow is provided at
+[`ci/github-actions-tests.yml`](ci/github-actions-tests.yml); to enable it,
+copy it to `.github/workflows/tests.yml` and push with a token that has the
+`workflow` scope (see the header comment in the file).
 
 ---
 
@@ -241,8 +243,9 @@ poco-retail-ai-core/
 │   └── main.py               # the 60s daemon loop
 ├── services/retail-ai.service# termux-services (runit) unit
 ├── tests/                    # unittest suite (stdlib only)
+├── ci/                       # optional GitHub Actions workflow
 ├── docs/ARCHITECTURE.md      # module map + design decisions
-└── .github/workflows/tests.yml
+└── config.env.example        # configuration template
 ```
 
 ## 📄 License

@@ -1,0 +1,39 @@
+# Optional GitHub Actions CI for poco-retail-ai-core.
+#
+# HOW TO ENABLE:
+#   1. Copy this file to  .github/workflows/tests.yml
+#   2. Push. Note: GitHub rejects pushes that create workflow files unless
+#      the token has the `workflow` scope (OAuth apps) — use a classic PAT
+#      or an SSH key push.
+# The unittest suite itself runs anywhere with just `python3` — see README.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The analytics modules + tests are stdlib-only, so the unittest suite
+      # runs with zero pip dependencies. py_compile validates the core
+      # modules without importing them (no cv2/requests needed).
+      - name: Syntax-check every module
+        run: |
+          python -m py_compile \
+            analytics/*.py core/*.py tests/*.py
+
+      - name: Run unittest suite
+        run: python -m unittest discover -s tests -v
