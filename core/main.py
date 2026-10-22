@@ -17,6 +17,10 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+# When run directly (`python core/main.py`), Python puts core/ on sys.path
+# instead of the repo root — make the sibling packages importable.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from analytics.db_handler import DBHandler
 from analytics.kpi_engine import KpiEngine, congestion_level
 from core.cloud_sync import CloudSync, CloudSyncError
@@ -59,12 +63,16 @@ class RetailAIDaemon:
             congested_at=cfg.congested_at,
             critical_at=cfg.critical_at,
         )
-        self.cloud = CloudSync(
-            bot_token=cfg.bot_token,
-            state_channel_id=cfg.state_channel_id,
-            admin_id=cfg.admin_id,
-            default_expiry=cfg.default_subscription_expiry,
-        )
+        self.cloud: Optional[CloudSync] = None
+        if cfg.bot_token:
+            self.cloud = CloudSync(
+                bot_token=cfg.bot_token,
+                state_channel_id=cfg.state_channel_id,
+                admin_id=cfg.admin_id,
+                default_expiry=cfg.default_subscription_expiry,
+            )
+        else:
+            log.warning("BOT_TOKEN is empty — cloud sync disabled (local-only mode)")
         self.cameras: list[dict[str, Any]] = list(cfg.local_cameras)
         self.ai_prompt: str = cfg.local_ai_prompt
         self._last_state_posted: int = 0
@@ -72,6 +80,8 @@ class RetailAIDaemon:
     # ------------------------------------------------------------------ steps
     def sync_config(self) -> None:
         """Pull dashboard envelopes (blocking long-poll, bounded)."""
+        if self.cloud is None:
+            return
         try:
             self.cloud.poll_incoming()
             # CloudSync.apply_envelope is the single source of truth.
@@ -121,6 +131,8 @@ class RetailAIDaemon:
 
     def publish_state(self, force: bool = False) -> None:
         """Compute the current status + hourly report and pin them."""
+        if self.cloud is None:
+            return
         now = int(time.time())
         if not force and now - self._last_state_posted \
                 < self.cfg.state_post_interval_seconds:
@@ -163,7 +175,7 @@ class RetailAIDaemon:
         while not _SHUTDOWN:
             started = time.monotonic()
             self.sync_config()
-            if self.cloud.is_subscription_active():
+            if self.cloud is None or self.cloud.is_subscription_active():
                 try:
                     self.process_cameras()
                 except Exception as exc:  # noqa: BLE001 — never kill the loop
@@ -180,8 +192,6 @@ class RetailAIDaemon:
 def main() -> None:
     cfg = Config.load()
     setup_logging(cfg.log_file)
-    if not cfg.bot_token:
-        log.warning("BOT_TOKEN is empty — cloud sync disabled (local-only mode)")
     RetailAIDaemon(cfg).run_forever()
 
 
