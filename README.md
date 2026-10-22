@@ -120,7 +120,7 @@ chmod +x setup.sh && ./setup.sh
    (`-march=armv8.2a+dotprod -O3`), producing `llama-minicpmv-cli`.
 5. Downloads **MiniCPM-V 4.7B GGUF** (~3GB) from Hugging Face into `models/`.
    *If the filename 404s, check the file listing at
-   <https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF> and re-run with
+   <https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf> and re-run with
    `MODEL_FILE=<actual-name> ./setup.sh`.*
 6. Creates `config.env` from the template and the `termux-services` unit.
 7. Acquires the **wake lock** so Android never freezes the daemon.
@@ -226,7 +226,7 @@ math anywhere, even without OpenCV/requests.
 | Android kills the daemon | Check `free -h` — swap should show 2GB; `sv restart retail-ai`; disable battery optimization for Termux |
 | `camera ... could not open stream` | Verify RTSP URL in VLC; some cameras need `rtsp_transport tcp` — add `?tcp` handling or a lower-resolution substream |
 | Inference binary not found | Re-run `./setup.sh` (step 4 builds llama.cpp) |
-| Model download 404 | Set `MODEL_FILE` to a real filename from the [HF repo](https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF) |
+| Model download fails (401/404) | Verify `MODEL_FILE`/`MMPROJ_FILE` against the [HF repo](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf) file listing |
 | `Telegram API unreachable` | Check token, network; Telegram is blocked in some regions (consider a proxy) |
 | `could not pin state message` | Grant the bot **Pin messages** admin right in the channel |
 | Status stuck at `Blocked` | An admin must set a future `subscription_expiry` from the dashboard |

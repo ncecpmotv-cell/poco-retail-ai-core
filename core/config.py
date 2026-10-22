@@ -81,7 +81,8 @@ class Config:
     db_path: str = "data/retail_ai.db"
     snapshot_dir: str = "snapshots"
     model_dir: str = "models"
-    model_file: str = "ggml-model-Q4_K_M.gguf"
+    model_file: str = "MiniCPM-V-4_7-1B-Q4_K_M.gguf"
+    mmproj_file: str = "mmproj-model-f16.gguf"
     minicpmv_cli_path: str = "llama.cpp/build/bin/llama-minicpmv-cli"
     log_file: str = "logs/retail_ai.log"
     inference_timeout_seconds: int = 120
@@ -114,7 +115,8 @@ class Config:
             db_path=_env("DB_PATH", "data/retail_ai.db"),
             snapshot_dir=_env("SNAPSHOT_DIR", "snapshots"),
             model_dir=_env("MODEL_DIR", "models"),
-            model_file=_env("MODEL_FILE", "ggml-model-Q4_K_M.gguf"),
+            model_file=_env("MODEL_FILE", "MiniCPM-V-4_7-1B-Q4_K_M.gguf"),
+            mmproj_file=_env("MMPROJ_FILE", "mmproj-model-f16.gguf"),
             minicpmv_cli_path=_env(
                 "MINICPMV_CLI_PATH", "llama.cpp/build/bin/llama-minicpmv-cli"
             ),

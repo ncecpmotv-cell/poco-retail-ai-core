@@ -17,8 +17,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
 # --- configurable knobs ------------------------------------------------------
-MODEL_REPO_URL="${MODEL_REPO_URL:-https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF/resolve/main}"
-MODEL_FILE="${MODEL_FILE:-ggml-model-Q4_K_M.gguf}"
+# Verified (2026-10): openbmb/MiniCPM-V-4.7-1B-gguf exists and is open.
+# MiniCPM-V needs BOTH the LLM GGUF and the mmproj vision projector.
+MODEL_REPO_URL="${MODEL_REPO_URL:-https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf/resolve/main}"
+MODEL_FILE="${MODEL_FILE:-MiniCPM-V-4_7-1B-Q4_K_M.gguf}"
+MMPROJ_FILE="${MMPROJ_FILE:-mmproj-model-f16.gguf}"
 MODEL_DIR="${MODEL_DIR:-models}"
 LLAMA_CPP_URL="${LLAMA_CPP_URL:-https://github.com/ggerganov/llama.cpp.git}"
 SWAP_MB="${SWAP_MB:-2048}"
@@ -111,16 +114,19 @@ fi
 
 # --- 5. MiniCPM-V model download ------------------------------------------------
 mkdir -p "$MODEL_DIR"
-if [ -f "$MODEL_DIR/$MODEL_FILE" ]; then
-    log "Model already present: $MODEL_DIR/$MODEL_FILE"
-else
-    log "Downloading MiniCPM-V GGUF (~3GB, may take a while)..."
+for pair in "MODEL_FILE:$MODEL_FILE" "MMPROJ_FILE:$MMPROJ_FILE"; do
+    key="${pair%%:*}"; file="${pair#*:}"
+    if [ -f "$MODEL_DIR/$file" ]; then
+        log "$key already present: $MODEL_DIR/$file"
+        continue
+    fi
+    log "Downloading $key ($file, may take a while)..."
     curl -fL --retry 3 -C - \
-        "$MODEL_REPO_URL/$MODEL_FILE" \
-        -o "$MODEL_DIR/$MODEL_FILE" || \
-        fail "Model download failed. Check MODEL_FILE/MODEL_REPO_URL against the
-        Hugging Face repo file listing: https://huggingface.co/openbmb/MiniCPM-V-4_7-1B-GGUF"
-fi
+        "$MODEL_REPO_URL/$file" \
+        -o "$MODEL_DIR/$file" || \
+        fail "Download failed for $file. Verify against the file listing:
+        https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf/tree/main"
+done
 
 # --- 6. config + directories -----------------------------------------------------
 [ -f config.env ] || { cp config.env.example config.env; log "Created config.env — EDIT IT with your BOT_TOKEN etc."; }

@@ -99,6 +99,7 @@ class RetailAIDaemon:
                 snapshot,
                 prompt,
                 timeout_seconds=self.cfg.inference_timeout_seconds,
+                mmproj_file=self.cfg.mmproj_file,
             )
             if result is None:
                 log.warning("camera %s: inference failed", cam_id)

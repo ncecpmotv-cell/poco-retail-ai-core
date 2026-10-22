@@ -92,12 +92,15 @@ def run_inference(
     image_path: str,
     prompt: str,
     timeout_seconds: int = 120,
+    mmproj_file: str = "mmproj-model-f16.gguf",
 ) -> Optional[dict[str, Any]]:
     """Execute the CLI once and return parsed telemetry, or None on failure."""
     model_path = f"{model_dir.rstrip('/')}/{model_file}"
+    mmproj_path = f"{model_dir.rstrip('/')}/{mmproj_file}"
     cmd = [
         cli_path,
         "-m", model_path,
+        "--mmproj", mmproj_path,
         "--image", image_path,
         "-p", prompt,
         "--temp", "0.1",
