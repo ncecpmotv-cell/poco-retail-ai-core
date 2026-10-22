@@ -223,7 +223,7 @@ math anywhere, even without OpenCV/requests.
 
 | Symptom | Fix |
 |---|---|
-| Android kills the daemon | Check `free -h` — swap should show 2GB; `sv restart retail-ai`; disable battery optimization for Termux |
+| Android kills the daemon (OOM) | Disable battery optimization for Termux; keep the wakelock notification; don't swipe Termux away. **RAM tip:** use the Q8_0 mmproj (`MiniCPM-V-4.7-1B.mmproj-Q8_0.gguf` from `mradermacher/MiniCPM-V-4.7-1B-GGUF`) instead of the f16 one to save ~600MB. The 2GB swap needs a rooted device; `free -h` shows whether swap is active |
 | `camera ... could not open stream` | Verify RTSP URL in VLC; some cameras need `rtsp_transport tcp` — add `?tcp` handling or a lower-resolution substream |
 | Inference binary not found | Re-run `./setup.sh` (step 4 builds llama.cpp) |
 | Model download fails (401/404) | Verify `MODEL_FILE`/`MMPROJ_FILE` against the [HF repo](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf) file listing |
