@@ -71,7 +71,7 @@ CloudStorage keys, so the dashboard's CloudStorage mirror stays compatible.
 | Direction | `type` | Payload |
 |---|---|---|
 | core → dashboard (pinned) | `state` | `{updated_at, subscription_expiry, current_status: {status, count, alert, camera_id, congestion_index, timestamp}, last_analytics_report: {peak_hour, total_visits, efficiency, footfall_today, footfall_yesterday, trend_pct_vs_yesterday, staffing_gaps, congestion_index, congestion_level, current_count, peak_hour_distribution, generated_at}}` |
-| dashboard → core | `set_config` | `{user_id, payload: {cctv_rtsp_urls: [{id, url, role?}], ai_target_prompt}}` |
+| dashboard → core | `set_config` | `{user_id, payload: {cctv_rtsp_urls: [{id, url, role?}], ai_target_prompt, store_capacity, staffing_threshold}}` |
 | admin → core | `set_subscription` | `{user_id, payload: {user_id, subscription_expiry}}` |
 
 > ⚠️ **Design deviation from the knowledge base.** The KB proposes Bot API

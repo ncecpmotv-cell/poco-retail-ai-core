@@ -168,6 +168,31 @@ class KpiEngineTests(unittest.TestCase):
         self.assertIsNotNone(d["dwell_minutes"])
         self.assertGreater(d["dwell_minutes"], 0)
 
+    def test_runtime_threshold_update_changes_congestion(self):
+        """Live set_config should re-tune congestion without a restart."""
+        self._seed()
+        # Seed's latest row is count=9; capacity=20 → 9/20=0.45 → Normal.
+        self.assertEqual(self.engine.calculate_hourly_metrics(now=self.now)["congestion_level"], "Normal")
+        # Owner lowers capacity to 4 → same count (9) is now Critical.
+        self.engine.capacity = 4
+        report = self.engine.calculate_hourly_metrics(now=self.now)
+        self.assertEqual(report["current_count"], 9)
+        self.assertEqual(report["congestion_index"], 2.25)
+        self.assertEqual(report["congestion_level"], "Critical")
+
+    def test_runtime_staffing_threshold_update(self):
+        """Lowering the staffing threshold makes more frames count as gaps."""
+        import time as _t
+
+        now = int(_t.time())
+        # A busy-but-staffed frame: count 8 > threshold 5 would be a gap only
+        # if staff_present were False. Seed two frames, one unstaffed at 8.
+        self.db.save_telemetry("cam1", "busy", 8, "high", False, timestamp=now - 7200)
+        self.engine.staffing_threshold = 20  # now 8 is NOT above threshold
+        self.assertEqual(len(self.engine.staffing_gaps(since=now - 86400)), 0)
+        self.engine.staffing_threshold = 5   # 8 > 5 → gap
+        self.assertEqual(len(self.engine.staffing_gaps(since=now - 86400)), 1)
+
     def test_weekly_summary_shape(self):
         import time as _t
 

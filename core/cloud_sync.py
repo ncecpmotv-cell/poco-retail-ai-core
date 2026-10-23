@@ -75,6 +75,10 @@ class CloudSync:
         self.last_state_payload: Optional[dict[str, Any]] = None
         # Incoming chat commands collected by poll_incoming:
         self.pending_commands: list[dict[str, Any]] = []
+        # Live thresholds pushed by the dashboard via set_config (None = keep
+        # the config.env values the daemon booted with):
+        self.store_capacity: Optional[int] = None
+        self.staffing_threshold: Optional[int] = None
 
     # ------------------------------------------------------------ low level
     def api_call(
@@ -242,6 +246,15 @@ class CloudSync:
             return None
         return data if isinstance(data, dict) and "type" in data else None
 
+    @staticmethod
+    def _positive_int(value: Any) -> Optional[int]:
+        """Coerce a payload value (int/float/str) to a positive int, else None."""
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return None
+        return n if n > 0 else None
+
     def apply_envelope(self, envelope: dict[str, Any]) -> bool:
         """Apply one dashboard envelope. Returns True when something changed."""
         kind = envelope.get("type")
@@ -249,6 +262,8 @@ class CloudSync:
         if kind == "set_config":
             cameras = payload.get("cctv_rtsp_urls")
             prompt = payload.get("ai_target_prompt")
+            capacity = self._positive_int(payload.get("store_capacity"))
+            threshold = self._positive_int(payload.get("staffing_threshold"))
             changed = False
             if isinstance(cameras, list) and cameras != getattr(self, "cameras", None):
                 self.cameras = cameras
@@ -256,9 +271,16 @@ class CloudSync:
             if isinstance(prompt, str) and prompt.strip():
                 self.ai_target_prompt = prompt.strip()
                 changed = True
-            log.info("applied set_config (cameras=%d, prompt=%s)",
+            if capacity is not None and capacity != self.store_capacity:
+                self.store_capacity = capacity
+                changed = True
+            if threshold is not None and threshold != self.staffing_threshold:
+                self.staffing_threshold = threshold
+                changed = True
+            log.info("applied set_config (cameras=%d, prompt=%s, capacity=%s, threshold=%s)",
                      len(getattr(self, "cameras", []) or []),
-                     bool(getattr(self, "ai_target_prompt", "")))
+                     bool(getattr(self, "ai_target_prompt", "")),
+                     self.store_capacity, self.staffing_threshold)
             return changed
         if kind == "set_subscription":
             expiry = payload.get("subscription_expiry")

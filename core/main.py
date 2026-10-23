@@ -100,6 +100,16 @@ class RetailAIDaemon:
                 self.cameras = self.cloud.cameras
             if getattr(self.cloud, "ai_target_prompt", ""):
                 self.ai_prompt = self.cloud.ai_target_prompt
+            # Live thresholds pushed by the dashboard — update the KPI engine
+            # so congestion + staffing math matches the owner's settings.
+            cap = getattr(self.cloud, "store_capacity", None)
+            thr = getattr(self.cloud, "staffing_threshold", None)
+            if cap is not None:
+                self.kpi.capacity = int(cap)
+                self.cfg.store_capacity = int(cap)
+            if thr is not None:
+                self.kpi.staffing_threshold = int(thr)
+                self.cfg.staffing_threshold = int(thr)
         except CloudSyncError as exc:
             log.warning("sync failed (offline?): %s", exc)
 
